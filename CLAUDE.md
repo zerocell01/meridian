@@ -8,7 +8,7 @@ Autonomous DLMM liquidity provider agent for Meteora pools on Solana.
 
 ```
 index.js            Main entry: REPL + cron orchestration + Telegram bot polling
-agent.js            ReAct loop (OpenRouter/OpenAI-compatible): LLM → tool call → repeat
+agent.js            ReAct loop (9Router/OpenAI-compatible): LLM → tool call → repeat
 config.js           Runtime config from user-config.json + .env; exposes config object
 prompt.js           Builds system prompt per agent role (SCREENER / MANAGER / GENERAL)
 state.js            Position registry (state.json): tracks bin ranges, OOR timestamps, notes
@@ -90,7 +90,7 @@ Sets defined in `agent.js:6-7`. If you add a tool, also add it to the relevant s
 | outOfRangeWaitMinutes | management | 30 |
 | managementIntervalMin | schedule | 10 |
 | screeningIntervalMin | schedule | 30 |
-| managementModel / screeningModel / generalModel | llm | openrouter/healer-alpha |
+| managementModel / screeningModel / generalModel | llm | glm/glm-4.7 |
 
 **`computeDeployAmount(walletSol)`** — scales position size with wallet balance (compounding). Formula: `clamp(deployable × positionSizePct, floor=deployAmountSol, ceil=maxDeployAmount)`.
 
@@ -180,9 +180,11 @@ const actualBaseFee = baseFactor > 0
 
 ## Model Configuration
 
-- Default model: `process.env.LLM_MODEL` or `openrouter/healer-alpha`
-- Fallback on 502/503/529: `stepfun/step-3.5-flash:free` (2nd attempt), then retry
+- LLM client (`agent.js`) defaults to 9Router: `LLM_BASE_URL=http://localhost:20128/v1`, key `LLM_API_KEY` (falls back to `NINEROUTER_API_KEY` / `OPENROUTER_API_KEY` / the literal `"9router"`)
+- Default model: `process.env.LLM_MODEL` or `glm/glm-4.7`
+- Fallback: 9Router does upstream provider fallback internally. The in-app model-switch on 502/503/529 is opt-in via `LLM_FALLBACK_MODEL` (null/off by default), then retry with backoff
 - Per-role models: `managementModel`, `screeningModel`, `generalModel` in user-config.json
+- OpenRouter: set `LLM_BASE_URL=https://openrouter.ai/api/v1` and `OPENROUTER_API_KEY`
 - LM Studio: set `LLM_BASE_URL=http://localhost:1234/v1` and `LLM_API_KEY=lm-studio`
 - `maxOutputTokens` minimum: 2048 (free models may have lower limits causing empty responses)
 
@@ -210,11 +212,13 @@ Agent Meridian HiveMind sync is handled by `hivemind.js`. It uses built-in Agent
 |-----|----------|---------|
 | `WALLET_PRIVATE_KEY` | Yes | Base58 or JSON array private key |
 | `RPC_URL` | Yes | Solana RPC endpoint |
-| `OPENROUTER_API_KEY` | Yes | LLM API key |
+| `LLM_BASE_URL` | No | LLM endpoint, defaults to 9Router `http://localhost:20128/v1` |
+| `LLM_API_KEY` | No | LLM key (9Router needs none; falls back to `OPENROUTER_API_KEY`) |
+| `LLM_MODEL` | No | Override default model (default `glm/glm-4.7`) |
+| `LLM_FALLBACK_MODEL` | No | Opt-in model to switch to on transient errors |
+| `OPENROUTER_API_KEY` | No | Used only if pointing `LLM_BASE_URL` at OpenRouter |
 | `TELEGRAM_BOT_TOKEN` | No | Telegram notifications |
 | `TELEGRAM_CHAT_ID` | No | Telegram chat target |
-| `LLM_BASE_URL` | No | Override for local LLM (e.g. LM Studio) |
-| `LLM_MODEL` | No | Override default model |
 | `DRY_RUN` | No | Skip all on-chain transactions |
 | `HIVE_MIND_URL` | No | Collective intelligence server |
 | `HIVE_MIND_API_KEY` | No | Hive mind auth token |
