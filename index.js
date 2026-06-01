@@ -1047,11 +1047,28 @@ function settingValue(key) {
     rsiLength: config.indicators.rsiLength,
     indicatorIntervals: config.indicators.intervals,
     requireAllIntervals: config.indicators.requireAllIntervals,
+    // LLM models
+    managementModel: config.llm.managementModel,
+    screeningModel: config.llm.screeningModel,
+    generalModel: config.llm.generalModel,
+    allModels: config.llm.managementModel,
+    // Screening filters (edited via "type a value")
+    minMcap: config.screening.minMcap,
+    maxMcap: config.screening.maxMcap,
+    minVolume: config.screening.minVolume,
+    minHolders: config.screening.minHolders,
+    minTokenAgeHours: config.screening.minTokenAgeHours,
+    maxTokenAgeHours: config.screening.maxTokenAgeHours,
+    minOrganic: config.screening.minOrganic,
+    minTokenFeesSol: config.screening.minTokenFeesSol,
+    maxTop10Pct: config.screening.maxTop10Pct,
+    athFilterPct: config.screening.athFilterPct,
   };
   return values[key];
 }
 
 function fmtSettingValue(value) {
+  if (value == null) return "any";
   if (Array.isArray(value)) return value.join(",");
   if (typeof value === "boolean") return value ? "on" : "off";
   return String(value);
@@ -1064,6 +1081,23 @@ function settingButton(label, data) {
 function toggleButton(key, label) {
   return settingButton(`${label}: ${fmtSettingValue(settingValue(key))}`, `cfg:toggle:${key}`);
 }
+
+// Pencil-style "type a value" button — tapping it asks the user to send a new value.
+function editButton(key, label) {
+  return settingButton(`${label}: ${fmtSettingValue(settingValue(key))} ✏️`, `cfg:edit:${key}`);
+}
+
+// Which settings page a given config key belongs to (for re-rendering after a change).
+function pageForKey(key) {
+  if (key.startsWith("indicator") || key === "chartIndicatorsEnabled" || key === "rsiLength" || key === "requireAllIntervals") return "indicators";
+  if (["useDiscordSignals", "blockPvpSymbols", "strategy", "minBinsBelow", "maxBinsBelow", "defaultBinsBelow", "managementIntervalMin", "screeningIntervalMin"].includes(key)) return "screen";
+  if (["minMcap", "maxMcap", "minVolume", "minHolders", "minTokenAgeHours", "maxTokenAgeHours", "minOrganic", "minTokenFeesSol", "maxTop10Pct", "athFilterPct"].includes(key)) return "filters";
+  if (["managementModel", "screeningModel", "generalModel", "allModels"].includes(key)) return "llm";
+  return "risk";
+}
+
+// Pending "type a value" config edit set from a pencil button: { key, page }
+let _pendingCfgEdit = null;
 
 function stepButtons(key, label, step, { digits = 2 } = {}) {
   const value = Number(settingValue(key));
@@ -1092,6 +1126,10 @@ function renderSettingsMenu(page = "main") {
       settingButton("Risk", "cfg:page:risk"),
       settingButton("Screen", "cfg:page:screen"),
       settingButton("Indicators", "cfg:page:indicators"),
+    ],
+    [
+      settingButton("LLM", "cfg:page:llm"),
+      settingButton("Filters", "cfg:page:filters"),
     ],
   ];
 
@@ -1151,6 +1189,21 @@ function renderSettingsMenu(page = "main") {
         settingButton("Exit: BB+RSI", "cfg:set:indicatorExitPreset:bb_plus_rsi"),
       ],
       stepButtons("rsiLength", "RSI len", 1, { digits: 0 }),
+    ];
+  } else if (page === "llm") {
+    rows = [
+      [editButton("managementModel", "Manage model")],
+      [editButton("screeningModel", "Screen model")],
+      [editButton("generalModel", "General model")],
+      [settingButton("Set ALL models ✏️", "cfg:edit:allModels")],
+    ];
+  } else if (page === "filters") {
+    rows = [
+      [editButton("minMcap", "Min mcap"), editButton("maxMcap", "Max mcap")],
+      [editButton("minVolume", "Min vol"), editButton("minHolders", "Min holders")],
+      [editButton("minTokenAgeHours", "Min age h"), editButton("maxTokenAgeHours", "Max age h")],
+      [editButton("minOrganic", "Min organic"), editButton("minTokenFeesSol", "Min fee SOL")],
+      [editButton("maxTop10Pct", "Max top10 %"), editButton("athFilterPct", "ATH %")],
     ];
   } else {
     rows = [
@@ -1213,6 +1266,18 @@ async function applySettingsMenuCallback(msg) {
     await showSettingsMenu({ messageId: msg.messageId, page });
     return;
   }
+  if (action === "edit") {
+    const editKey = parts[2];
+    _pendingCfgEdit = { key: editKey, page: pageForKey(editKey) };
+    await answerCallbackQuery(msg.callbackQueryId, "Send the new value");
+    const label = editKey === "allModels" ? "all models (management + screening + general)" : editKey;
+    await sendMessage(
+      `✏️ Send the new value for ${label}.\n` +
+      `Current: ${fmtSettingValue(settingValue(editKey))}\n\n` +
+      `Reply with the value (e.g. a number or model name), or send /cancel to abort.`
+    ).catch(() => {});
+    return;
+  }
 
   const key = parts[2];
   let value;
@@ -1248,11 +1313,7 @@ async function applySettingsMenuCallback(msg) {
     await answerCallbackQuery(msg.callbackQueryId, "Config update failed");
     return;
   }
-  page = key.startsWith("indicator") || key === "chartIndicatorsEnabled" || key === "rsiLength" || key === "requireAllIntervals"
-    ? "indicators"
-    : ["useDiscordSignals", "blockPvpSymbols", "strategy", "minBinsBelow", "maxBinsBelow", "defaultBinsBelow", "managementIntervalMin", "screeningIntervalMin"].includes(key)
-      ? "screen"
-      : "risk";
+  page = pageForKey(key);
   await answerCallbackQuery(msg.callbackQueryId, `Updated ${key}`);
   await showSettingsMenu({ messageId: msg.messageId, page });
 }
@@ -1271,6 +1332,7 @@ function formatHelpText() {
     "/set <n> <note> — set note/instruction on position",
     "/config — show important runtime config",
     "/settings — button menu for common config",
+    "/cancel — cancel a pending settings value edit",
     "/setcfg <key> <value> — update persisted config",
     "/screen — refresh deterministic candidate list",
     "/candidates — show latest cached candidates",
@@ -1391,6 +1453,43 @@ async function telegramHandler(msg) {
     }
     return;
   }
+
+  // Pending "type a value" config edit (from the /settings pencil buttons)
+  if (_pendingCfgEdit && !msg?.isCallback) {
+    const pending = _pendingCfgEdit;
+    if (text.toLowerCase() === "/cancel") {
+      _pendingCfgEdit = null;
+      await sendMessage("Edit cancelled.").catch(() => {});
+      await showSettingsMenu({ page: pending.page }).catch(() => {});
+      return;
+    }
+    if (!text.startsWith("/")) {
+      _pendingCfgEdit = null;
+      try {
+        const value = parseConfigValue(text);
+        const changes = pending.key === "allModels"
+          ? { managementModel: value, screeningModel: value, generalModel: value }
+          : { [pending.key]: value };
+        const result = await executeTool("update_config", {
+          changes,
+          reason: "Telegram settings menu (typed value)",
+        });
+        if (!result?.success) {
+          const why = (result?.unknown || []).join(", ") || result?.error || "unknown";
+          await sendMessage(`❌ Update failed for ${pending.key}: ${why}`).catch(() => {});
+        } else {
+          await sendMessage(`✅ Updated ${Object.keys(changes).join(", ")} = ${JSON.stringify(value)}`).catch(() => {});
+        }
+      } catch (e) {
+        await sendMessage(`❌ Invalid value: ${e.message}`).catch(() => {});
+      }
+      await showSettingsMenu({ page: pending.page }).catch(() => {});
+      return;
+    }
+    // A different command was sent — cancel the pending edit and let it through.
+    _pendingCfgEdit = null;
+  }
+
   if (text === "/settings" || text === "/menu" || text === "/configmenu") {
     await showSettingsMenu().catch((e) => sendMessage(`Settings error: ${e.message}`).catch(() => {}));
     return;

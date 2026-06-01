@@ -398,6 +398,7 @@ const BOT_COMMANDS = [
   { command: "set",        description: "Set note/instruction on position" },
   { command: "config",     description: "Show important runtime config" },
   { command: "settings",   description: "Button menu for common config" },
+  { command: "cancel",     description: "Cancel a pending settings edit" },
   { command: "setcfg",     description: "Update persisted config key" },
   { command: "screen",     description: "Refresh deterministic candidate list" },
   { command: "candidates", description: "Show latest cached candidates" },
