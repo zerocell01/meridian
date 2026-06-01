@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_PATH = path.join(__dirname, "user-config.json");
 const ENV_PATH    = path.join(__dirname, ".env");
 
-const DEFAULT_MODEL = "openai/gpt-oss-20b:free";
+const DEFAULT_MODEL = "glm/glm-4.7";
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -340,6 +340,13 @@ console.log("\n── LLM Provider ───────────────
 
 const LLM_PROVIDERS = [
   {
+    label:   "9Router      (local gateway :20128 — 40+ providers, 3-tier fallback) [recommended]",
+    key:     "9router",
+    baseUrl: "http://localhost:20128/v1",
+    keyHint: "(leave blank — 9Router runs locally without a key)",
+    modelDefault: "glm/glm-4.7",
+  },
+  {
     label:   "OpenRouter   (openrouter.ai — many models)",
     key:     "openrouter",
     baseUrl: "https://openrouter.ai/api/v1",
@@ -380,7 +387,7 @@ const providerChoice = await askChoice("Select LLM provider:", LLM_PROVIDERS.map
 const provider = LLM_PROVIDERS.find((p) => p.key === providerChoice.key);
 
 let llmBaseUrl = provider.baseUrl;
-if (provider.key === "local" || provider.key === "custom") {
+if (provider.key === "local" || provider.key === "custom" || provider.key === "9router") {
   llmBaseUrl = await ask("Base URL", e("llmBaseUrl", provider.baseUrl || "http://localhost:1234/v1"));
 }
 

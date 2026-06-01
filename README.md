@@ -41,14 +41,14 @@ The harness also keeps a structured decision log in `decision-log.json` for depl
 - Pool screening API — fee/TVL ratios, volume, organic scores, holder counts
 - Jupiter API — token audit, mcap, launchpad, price stats
 
-Agents are powered via **OpenRouter** and can be swapped for any compatible model.
+Agents are powered via **9Router** (a local OpenAI-compatible gateway with built-in multi-provider fallback) by default, and can be swapped for OpenRouter or any compatible model.
 
 ---
 
 ## Requirements
 
 - Node.js 18+
-- [OpenRouter](https://openrouter.ai) API key
+- [9Router](https://9router.com) running locally (`npm install -g 9router && 9router start`) — or an [OpenRouter](https://openrouter.ai) API key
 - Solana wallet (base58 private key)
 - Solana RPC endpoint ([Helius](https://helius.xyz) recommended)
 - Telegram bot token (optional)
@@ -81,7 +81,9 @@ Create `.env`:
 ```env
 WALLET_PRIVATE_KEY=your_base58_private_key
 RPC_URL=https://mainnet.helius-rpc.com/?api-key=YOUR_KEY
-OPENROUTER_API_KEY=sk-or-...
+LLM_BASE_URL=http://localhost:20128/v1  # 9Router (default) — local OpenAI-compatible gateway
+LLM_API_KEY=9router                     # 9Router needs no real key; any non-empty value works
+LLM_MODEL=glm/glm-4.7                   # a model/combo available in your 9Router dashboard
 HELIUS_API_KEY=your_helius_key          # for wallet balance lookups
 TELEGRAM_BOT_TOKEN=123456:ABC...        # optional — for notifications + chat
 TELEGRAM_CHAT_ID=                       # auto-filled on first message
@@ -463,11 +465,11 @@ All fields are optional — defaults shown. Edit `user-config.json`.
 
 | Field | Default | Description |
 |---|---|---|
-| `managementModel` | `openai/gpt-oss-20b:free` | LLM for management cycles |
-| `screeningModel` | `openai/gpt-oss-20b:free` | LLM for screening cycles |
-| `generalModel` | `openai/gpt-oss-20b:free` | LLM for REPL / chat |
+| `managementModel` | `glm/glm-4.7` | LLM for management cycles |
+| `screeningModel` | `glm/glm-4.7` | LLM for screening cycles |
+| `generalModel` | `glm/glm-4.7` | LLM for REPL / chat |
 
-> Override model at runtime: `node cli.js config set screeningModel anthropic/claude-opus-4-5`
+> Defaults assume a 9Router model. Use any model/combo available in your 9Router dashboard. Override at runtime: `node cli.js config set screeningModel cc/claude-opus-4-6`
 
 ---
 
@@ -567,7 +569,42 @@ There is currently no empty-string disable path for HiveMind; blank values fall 
 
 ---
 
-## Using a local model (LM Studio)
+## LLM provider: 9Router (default)
+
+Meridian talks to any OpenAI-compatible endpoint. By default it points at **[9Router](https://9router.com)** — a local gateway that routes each request across 40+ upstream providers using a 3-tier fallback chain (subscription → cheap → free), so the agent keeps running even when one provider rate-limits.
+
+### 1. Install and start 9Router
+
+```bash
+npm install -g 9router
+9router start          # API + dashboard on http://localhost:20128
+```
+
+Open the dashboard at `http://localhost:20128`, connect your providers (Claude Code, Codex, GLM, DeepSeek, free tiers, etc.), and create/confirm the model or combo you want Meridian to use.
+
+### 2. Point Meridian at 9Router
+
+In `.env`:
+
+```env
+LLM_BASE_URL=http://localhost:20128/v1
+LLM_API_KEY=9router            # any non-empty value — 9Router runs locally without auth
+LLM_MODEL=glm/glm-4.7          # a model/combo from your 9Router dashboard
+```
+
+> List the models your 9Router instance exposes: `curl http://localhost:20128/v1/models`
+
+Because 9Router does its own provider fallback internally, the in-app fallback is off by default. To also switch models inside Meridian on transient errors, set `LLM_FALLBACK_MODEL` to another 9Router model.
+
+### Using OpenRouter instead
+
+```env
+LLM_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=sk-or-...
+LLM_MODEL=nousresearch/hermes-3-llama-3.1-405b
+```
+
+### Using a local model (LM Studio / Ollama)
 
 ```env
 LLM_BASE_URL=http://localhost:1234/v1
@@ -576,6 +613,48 @@ LLM_MODEL=your-local-model-name
 ```
 
 Any OpenAI-compatible endpoint works.
+
+---
+
+## Running on a VPS
+
+Recommended layout: run **9Router** and **Meridian** as separate long-lived processes under PM2.
+
+```bash
+# 0. Install Node 18+ and PM2
+npm install -g pm2 9router
+
+# 1. Start 9Router and keep it alive
+pm2 start 9router --name 9router -- start
+
+# 2. Configure providers in the 9Router dashboard (port 20128).
+#    From your laptop, tunnel the dashboard over SSH:
+#      ssh -L 20128:localhost:20128 user@your-vps
+#    then open http://localhost:20128 in your local browser.
+
+# 3. Clone + install Meridian, then run the setup wizard
+git clone https://github.com/yunus-0x/meridian
+cd meridian
+npm install
+npm run setup          # choose "9Router" as the provider
+
+# 4. Start Meridian under PM2 and persist the process list
+npm run pm2:start
+pm2 save
+pm2 startup            # follow the printed command so both survive reboots
+```
+
+To update later:
+
+```bash
+git pull
+npm install
+npm run pm2:restart
+pm2 logs meridian --lines 100
+```
+
+> Keep `DRY_RUN=true` in `.env` until you have verified a few cycles, then set it to `false` for live trading.
+
 
 ---
 
