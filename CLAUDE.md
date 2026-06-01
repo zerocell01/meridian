@@ -200,6 +200,19 @@ const actualBaseFee = baseFactor > 0
 
 ---
 
+## Operator (auto-training)
+
+An optional second agent that improves Meridian over time. It does **not** trade.
+- Prompt / procedure: `operator/PROMPT.md`. Claude subagent: `.claude/agents/operator.md`.
+- Runner: `scripts/operator.sh` (Codex CLI by default, Claude Code optional) → `npm run operate`.
+- Reasons with a Hermes model via 9Router; schedule via cron (e.g. every 6h).
+- **Mode B** — auto-applies SAFE tuning (`lessons add`, `evolve`, `blacklist add`) and
+  proposes RISKY changes (`config set` / code edits) via a PR branch, never silently.
+- Hard guardrails: forbidden from `deploy`/`close`/`claim`/`swap`/`withdraw`/`add-liquidity`/`manage`/`screen`/`start` and from reading `.env`/keys.
+- `node cli.js evolve` now also recalculates Darwinian signal weights (when `darwin.enabled`).
+
+---
+
 ## HiveMind
 
 Agent Meridian HiveMind sync is handled by `hivemind.js`. It uses built-in Agent Meridian defaults unless overridden by config or env.

@@ -178,8 +178,9 @@ Output: { pool_address, known, name, total_deploys, win_rate, avg_pnl_pct, last_
 
 ### meridian evolve
 Runs evolveThresholds() over all closed position data and updates user-config.json.
+Also recalculates Darwinian signal weights (signal-weights.json) when darwin is enabled.
 \`\`\`
-Output: { evolved, changes, rationale }
+Output: { evolved, changes, rationale, signal_weight_changes }
 \`\`\`
 
 ### meridian blacklist add --mint <addr> --reason <text>
@@ -568,10 +569,30 @@ switch (subcommand) {
       try { perfData = JSON.parse(fs2.readFileSync(lessonsFile, "utf8")).performance || []; } catch { /* no data */ }
     }
     const result = evolveThresholds(perfData, config);
+
+    // Darwinian signal-weight recalculation — mirrors the automatic run in
+    // lessons.js so `meridian evolve` is a single safe tuning command.
+    let signalWeightChanges = [];
+    if (config.darwin?.enabled) {
+      try {
+        const { recalculateWeights } = await import("./signal-weights.js");
+        signalWeightChanges = recalculateWeights(perfData, config).changes || [];
+      } catch { /* signal-weights not critical */ }
+    }
+
     if (!result) {
-      out({ evolved: false, reason: `Need at least 5 closed positions (have ${perfData.length})` });
+      out({
+        evolved: false,
+        reason: `Need at least 5 closed positions (have ${perfData.length})`,
+        signal_weight_changes: signalWeightChanges,
+      });
     } else {
-      out({ evolved: Object.keys(result.changes).length > 0, changes: result.changes, rationale: result.rationale });
+      out({
+        evolved: Object.keys(result.changes).length > 0,
+        changes: result.changes,
+        rationale: result.rationale,
+        signal_weight_changes: signalWeightChanges,
+      });
     }
     break;
   }
