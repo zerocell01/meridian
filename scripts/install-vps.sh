@@ -9,6 +9,7 @@
 #
 # Env toggles:
 #   INSTALL_OPERATOR=1   also install Codex CLI for the operator/training agent
+#   INSTALL_DISCORD=1    also install the Discord signal listener dependencies
 #   REPO_URL=...         override repo URL (default: zerocell01/meridian)
 #   BRANCH=...           branch to clone (default: main)
 #   TARGET_DIR=...       where to clone (default: $HOME/meridian)
@@ -23,6 +24,7 @@ REPO_URL="${REPO_URL:-https://github.com/zerocell01/meridian.git}"
 BRANCH="${BRANCH:-main}"
 TARGET_DIR="${TARGET_DIR:-$HOME/meridian}"
 INSTALL_OPERATOR="${INSTALL_OPERATOR:-0}"
+INSTALL_DISCORD="${INSTALL_DISCORD:-0}"
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 step() { printf '\n\033[1;36m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
@@ -77,6 +79,10 @@ cd "$TARGET_DIR"
 
 step "5/6 Installing Meridian dependencies"
 npm install
+if [[ "$INSTALL_DISCORD" == "1" ]]; then
+  bold "Installing Discord listener dependencies..."
+  npm install --prefix discord-listener || warn "Discord listener deps failed — run 'npm run discord:install' later."
+fi
 
 step "6/6 Starting 9Router under PM2"
 pm2 start 9router --name 9router -- start || warn "9Router may already be running under PM2."
@@ -111,6 +117,18 @@ cat <<EOF
         cd "$TARGET_DIR" && npm run operate
      Then schedule it (every 6h):
         (crontab -l 2>/dev/null; echo "0 */6 * * * cd $TARGET_DIR && bash scripts/operator.sh >> logs/operator.cron.log 2>&1") | crontab -
+
+EOF
+fi
+
+if [[ "$INSTALL_DISCORD" == "1" ]]; then
+cat <<EOF
+  6) (Discord, ADVANCED) Add these to "$TARGET_DIR/.env" then re-run pm2:
+        DISCORD_USER_TOKEN=...      # WARNING: selfbot = against Discord ToS (ban risk)
+        DISCORD_GUILD_ID=...
+        DISCORD_CHANNEL_IDS=id1,id2
+     Then start it (PM2 auto-includes it once configured + installed):
+        cd "$TARGET_DIR" && npm run pm2:start && pm2 save
 
 EOF
 fi
