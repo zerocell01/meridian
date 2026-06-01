@@ -1063,6 +1063,12 @@ function settingValue(key) {
     minTokenFeesSol: config.screening.minTokenFeesSol,
     maxTop10Pct: config.screening.maxTop10Pct,
     athFilterPct: config.screening.athFilterPct,
+    maxBundlePct: config.screening.maxBundlePct,
+    maxBotHoldersPct: config.screening.maxBotHoldersPct,
+    minTvl: config.screening.minTvl,
+    maxTvl: config.screening.maxTvl,
+    minBinStep: config.screening.minBinStep,
+    maxBinStep: config.screening.maxBinStep,
   };
   return values[key];
 }
@@ -1091,13 +1097,24 @@ function editButton(key, label) {
 function pageForKey(key) {
   if (key.startsWith("indicator") || key === "chartIndicatorsEnabled" || key === "rsiLength" || key === "requireAllIntervals") return "indicators";
   if (["useDiscordSignals", "blockPvpSymbols", "strategy", "minBinsBelow", "maxBinsBelow", "defaultBinsBelow", "managementIntervalMin", "screeningIntervalMin"].includes(key)) return "screen";
-  if (["minMcap", "maxMcap", "minVolume", "minHolders", "minTokenAgeHours", "maxTokenAgeHours", "minOrganic", "minTokenFeesSol", "maxTop10Pct", "athFilterPct"].includes(key)) return "filters";
+  if (["minMcap", "maxMcap", "minVolume", "minHolders", "minTokenAgeHours", "maxTokenAgeHours", "minOrganic", "minTokenFeesSol", "maxTop10Pct", "athFilterPct", "maxBundlePct", "maxBotHoldersPct", "minTvl", "maxTvl", "minBinStep", "maxBinStep"].includes(key)) return "filters";
   if (["managementModel", "screeningModel", "generalModel", "allModels"].includes(key)) return "llm";
   return "risk";
 }
 
 // Pending "type a value" config edit set from a pencil button: { key, page }
 let _pendingCfgEdit = null;
+
+// Quick-pick models for the LLM tab (one tap sets all three roles). These are common
+// 9Router-style ids — they must exist in YOUR 9Router dashboard. For anything else,
+// use the ✏️ "type a value" buttons. Edit this list to customise the quick picks.
+const MODEL_PRESETS = [
+  { id: "hermes4", label: "Hermes 4", model: "nousresearch/hermes-4-405b" },
+  { id: "glm47",   label: "GLM-4.7",  model: "glm/glm-4.7" },
+  { id: "kimi",    label: "Kimi K2",  model: "if/kimi-k2-thinking" },
+  { id: "sonnet",  label: "Claude Sonnet", model: "cc/claude-sonnet" },
+  { id: "opus",    label: "Claude Opus",   model: "cc/claude-opus-4-6" },
+];
 
 function stepButtons(key, label, step, { digits = 2 } = {}) {
   const value = Number(settingValue(key));
@@ -1191,11 +1208,18 @@ function renderSettingsMenu(page = "main") {
       stepButtons("rsiLength", "RSI len", 1, { digits: 0 }),
     ];
   } else if (page === "llm") {
+    const presetRows = [];
+    for (let i = 0; i < MODEL_PRESETS.length; i += 2) {
+      presetRows.push(
+        MODEL_PRESETS.slice(i, i + 2).map((p) => settingButton(p.label, `cfg:modelall:${p.id}`))
+      );
+    }
     rows = [
       [editButton("managementModel", "Manage model")],
       [editButton("screeningModel", "Screen model")],
       [editButton("generalModel", "General model")],
       [settingButton("Set ALL models ✏️", "cfg:edit:allModels")],
+      ...presetRows,
     ];
   } else if (page === "filters") {
     rows = [
@@ -1204,6 +1228,9 @@ function renderSettingsMenu(page = "main") {
       [editButton("minTokenAgeHours", "Min age h"), editButton("maxTokenAgeHours", "Max age h")],
       [editButton("minOrganic", "Min organic"), editButton("minTokenFeesSol", "Min fee SOL")],
       [editButton("maxTop10Pct", "Max top10 %"), editButton("athFilterPct", "ATH %")],
+      [editButton("maxBundlePct", "Max bundle %"), editButton("maxBotHoldersPct", "Max bot %")],
+      [editButton("minTvl", "Min TVL"), editButton("maxTvl", "Max TVL")],
+      [editButton("minBinStep", "Min binStep"), editButton("maxBinStep", "Max binStep")],
     ];
   } else {
     rows = [
@@ -1276,6 +1303,29 @@ async function applySettingsMenuCallback(msg) {
       `Current: ${fmtSettingValue(settingValue(editKey))}\n\n` +
       `Reply with the value (e.g. a number or model name), or send /cancel to abort.`
     ).catch(() => {});
+    return;
+  }
+
+  if (action === "modelall") {
+    const preset = MODEL_PRESETS.find((p) => p.id === parts[2]);
+    if (!preset) {
+      await answerCallbackQuery(msg.callbackQueryId, "Unknown model");
+      return;
+    }
+    const result = await executeTool("update_config", {
+      changes: {
+        managementModel: preset.model,
+        screeningModel: preset.model,
+        generalModel: preset.model,
+      },
+      reason: "Telegram quick-pick model",
+    });
+    if (!result?.success) {
+      await answerCallbackQuery(msg.callbackQueryId, "Update failed");
+      return;
+    }
+    await answerCallbackQuery(msg.callbackQueryId, `All models → ${preset.label}`);
+    await showSettingsMenu({ messageId: msg.messageId, page: "llm" });
     return;
   }
 
