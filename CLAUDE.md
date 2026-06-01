@@ -233,9 +233,6 @@ Agent Meridian HiveMind sync is handled by `hivemind.js`. It uses built-in Agent
 | `TELEGRAM_BOT_TOKEN` | No | Telegram notifications |
 | `TELEGRAM_CHAT_ID` | No | Telegram chat target |
 | `TELEGRAM_ALLOWED_USER_IDS` | No | Comma-separated user IDs allowed to control the bot |
-| `DISCORD_USER_TOKEN` | No | Discord selfbot token (listener; against Discord ToS) |
-| `DISCORD_GUILD_ID` | No | Discord server ID the listener watches |
-| `DISCORD_CHANNEL_IDS` | No | Comma-separated channel IDs the listener watches |
 | `DRY_RUN` | No | Skip all on-chain transactions |
 | `HIVE_MIND_URL` | No | Collective intelligence server |
 | `HIVE_MIND_API_KEY` | No | Hive mind auth token |

@@ -337,10 +337,9 @@ The Discord listener watches configured channels (e.g. LP Army) for Solana token
 
 ### Setup
 
-Install the listener's own dependencies (separate from the main app):
-
 ```bash
-npm run discord:install      # = npm install --prefix discord-listener
+cd discord-listener
+npm install
 ```
 
 Add to your root `.env`:
@@ -352,27 +351,16 @@ DISCORD_CHANNEL_IDS=channel1,channel2            # comma-separated
 DISCORD_MIN_FEES_SOL=5                           # minimum pool fees to pass pre-check
 ```
 
-> **WARNING:** this uses a Discord *selfbot* (your personal account token, not an
-> official bot). Automating a user account is **against Discord's Terms of Service
-> and can get your account banned.** It is disabled by default and entirely optional.
+> This uses a selfbot (personal account automation, not a bot token). Use responsibly.
 
 ### Run
 
-Under PM2 (recommended on a VPS) — the listener is auto-included once it is both
-configured (`DISCORD_USER_TOKEN` set in `.env`) and installed:
-
 ```bash
-npm run pm2:start            # starts meridian + discord-listener (if configured)
-pm2 save
+cd discord-listener
+npm start
 ```
 
-Or run it standalone in its own terminal:
-
-```bash
-cd discord-listener && npm start
-```
-
-Signals are written to `discord-signals.json` and picked up automatically by `/screen` and `node cli.js screen`.
+Or run it in a separate terminal alongside the main agent. Signals are written to `discord-signals.json` and picked up automatically by `/screen` and `node cli.js screen`.
 
 ### Signal pipeline
 
@@ -404,13 +392,13 @@ Add known rug/farm deployer wallet addresses to `deployer-blacklist.json`:
 
 ### Setup
 
-The `npm run setup` wizard now asks for all three Telegram values. Or set them manually:
+The `npm run setup` wizard asks for all three Telegram values. Or set them manually:
 
 1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token → `TELEGRAM_BOT_TOKEN`
 2. Get your numeric IDs from [@userinfobot](https://t.me/userinfobot):
    - your chat ID → `TELEGRAM_CHAT_ID`
    - your user ID → `TELEGRAM_ALLOWED_USER_IDS` (comma-separated; required to control the bot)
-3. With just the token + chat ID you get **notifications**. Add the allowed user IDs to also **control** the bot via chat. (Auto-registration is disabled for safety.)
+3. Token + chat ID gives you **notifications**; add the allowed user IDs to also **control** the bot via chat. (Auto-registration is disabled for safety.)
 
 ### Notifications
 
@@ -731,21 +719,6 @@ Tune behaviour with env vars: `RUNNER` (`codex`|`claude`), `OPERATOR_MODEL`,
 
 > The operator is read-only with respect to your funds: it can never run `deploy`,
 > `close`, `swap`, `claim`, or touch `.env`/wallet keys.
-
-
----
-
-## Notifications & signals on the VPS
-
-- **Telegram (recommended, safe).** Lets you watch and control the bot from your phone.
-  Create a bot with [@BotFather](https://t.me/BotFather), grab your numeric IDs from
-  [@userinfobot](https://t.me/userinfobot), and enter them when `npm run setup` asks
-  (token + chat ID + allowed user IDs). Notifications + chat control then work
-  automatically — no extra process to run. See [Telegram](#telegram).
-- **Discord (optional, advanced).** An inbound signal listener that runs as a second
-  PM2 process. Install its deps (`npm run discord:install`), add `DISCORD_*` to `.env`,
-  then `npm run pm2:start` — PM2 auto-includes `discord-listener` once it's configured.
-  Note the **selfbot Terms-of-Service / ban risk**. See [Discord listener](#discord-listener).
 
 
 ---
