@@ -232,6 +232,7 @@ Agent Meridian HiveMind sync is handled by `hivemind.js`. It uses built-in Agent
 | `OPENROUTER_API_KEY` | No | Used only if pointing `LLM_BASE_URL` at OpenRouter |
 | `TELEGRAM_BOT_TOKEN` | No | Telegram notifications |
 | `TELEGRAM_CHAT_ID` | No | Telegram chat target |
+| `TELEGRAM_ALLOWED_USER_IDS` | No | Comma-separated user IDs allowed to control the bot |
 | `DRY_RUN` | No | Skip all on-chain transactions |
 | `HIVE_MIND_URL` | No | Collective intelligence server |
 | `HIVE_MIND_API_KEY` | No | Hive mind auth token |

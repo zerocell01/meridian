@@ -392,9 +392,13 @@ Add known rug/farm deployer wallet addresses to `deployer-blacklist.json`:
 
 ### Setup
 
-1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token
-2. Add `TELEGRAM_BOT_TOKEN=<token>` to your `.env`
-3. Start the agent, then send any message to your bot — it auto-registers your chat ID
+The `npm run setup` wizard asks for all three Telegram values. Or set them manually:
+
+1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token → `TELEGRAM_BOT_TOKEN`
+2. Get your numeric IDs from [@userinfobot](https://t.me/userinfobot):
+   - your chat ID → `TELEGRAM_CHAT_ID`
+   - your user ID → `TELEGRAM_ALLOWED_USER_IDS` (comma-separated; required to control the bot)
+3. Token + chat ID gives you **notifications**; add the allowed user IDs to also **control** the bot via chat. (Auto-registration is disabled for safety.)
 
 ### Notifications
 

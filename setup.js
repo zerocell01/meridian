@@ -185,6 +185,11 @@ const telegramChatId = await ask(
   ev("TELEGRAM_CHAT_ID", e("telegramChatId", ""))
 );
 
+const telegramAllowedUserIds = await ask(
+  "Telegram allowed user IDs (comma-separated — required to CONTROL the bot via chat)",
+  ev("TELEGRAM_ALLOWED_USER_IDS", e("telegramAllowedUserIds", ""))
+);
+
 // ─── Section 3: Preset ────────────────────────────────────────────────────────
 const presetChoice = await askChoice("Select a risk preset:", [
   { label: `🔥 Degen    — ${PRESETS.degen.description}`,    key: "degen"    },
@@ -413,6 +418,7 @@ const envMap = {
   ...(isKept(heliusKey)     ? {} : { HELIUS_API_KEY: heliusKey }),
   ...(isKept(telegramToken) ? {} : { TELEGRAM_BOT_TOKEN: telegramToken }),
   ...(telegramChatId        ? { TELEGRAM_CHAT_ID: telegramChatId } : {}),
+  ...(telegramAllowedUserIds ? { TELEGRAM_ALLOWED_USER_IDS: telegramAllowedUserIds } : {}),
   DRY_RUN: dryRun ? "true" : "false",
 };
 fs.writeFileSync(ENV_PATH, buildEnv(envMap));
