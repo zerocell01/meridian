@@ -1,0 +1,26 @@
+# Codex CLI config for running the Meridian Operator through 9Router + Hermes.
+#
+# Install:  copy this file to ~/.codex/config.toml  (or $CODEX_HOME/config.toml)
+#   mkdir -p ~/.codex && cp operator/codex-config.example.toml ~/.codex/config.toml
+#
+# Requires 9Router running locally:  9router start   (API on http://localhost:20128)
+# Pick a model/combo that exists in your 9Router dashboard (curl http://localhost:20128/v1/models).
+
+# Default model the operator reasons with. Hermes is good for analysis; for reliable
+# code edits consider a 9Router *combo* that falls back to a strong coder, e.g.
+#   nousresearch/hermes-4-405b -> glm/glm-4.7 -> cc/claude-sonnet
+model = "nousresearch/hermes-4-405b"
+model_provider = "9router"
+
+[model_providers.9router]
+name = "9Router"
+base_url = "http://localhost:20128/v1"
+# IMPORTANT: 9Router speaks the OpenAI Chat Completions API. Codex defaults to the
+# Responses API, so you MUST set wire_api = "chat" or requests will fail.
+wire_api = "chat"
+# 9Router runs locally without auth, but Codex still expects an env var name here.
+# Export any non-empty value:  export NINEROUTER_API_KEY=9router
+env_key = "NINEROUTER_API_KEY"
+
+# Tip: the easiest path is the 9Router dashboard -> "Codex" integration card, which
+# auto-writes a working config for your installed Codex version.

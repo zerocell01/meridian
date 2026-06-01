@@ -618,10 +618,28 @@ Any OpenAI-compatible endpoint works.
 
 ## Running on a VPS
 
-Recommended layout: run **9Router** and **Meridian** as separate long-lived processes under PM2.
+Two components run side by side under PM2: **9Router** (the LLM gateway) and **Meridian** (the bot).
+
+### Option A — one-command installer (Ubuntu/Debian, recommended)
 
 ```bash
-# 0. Install Node 18+ and PM2
+curl -fsSL https://raw.githubusercontent.com/zerocell01/meridian/main/scripts/install-vps.sh | bash
+```
+
+This installs Node 20, PM2, and 9Router, clones Meridian, installs dependencies, and
+starts 9Router under PM2. It then prints the remaining manual steps (they need your
+input): configuring 9Router providers, running `npm run setup`, and starting Meridian.
+
+To also install the operator/training agent (Codex), run it with the toggle:
+
+```bash
+INSTALL_OPERATOR=1 curl -fsSL https://raw.githubusercontent.com/zerocell01/meridian/main/scripts/install-vps.sh | bash
+```
+
+### Option B — manual
+
+```bash
+# 0. Install Node 18+ and PM2 + 9Router
 npm install -g pm2 9router
 
 # 1. Start 9Router and keep it alive
@@ -633,7 +651,7 @@ pm2 start 9router --name 9router -- start
 #    then open http://localhost:20128 in your local browser.
 
 # 3. Clone + install Meridian, then run the setup wizard
-git clone https://github.com/yunus-0x/meridian
+git clone https://github.com/zerocell01/meridian
 cd meridian
 npm install
 npm run setup          # choose "9Router" as the provider
@@ -654,6 +672,49 @@ pm2 logs meridian --lines 100
 ```
 
 > Keep `DRY_RUN=true` in `.env` until you have verified a few cycles, then set it to `false` for live trading.
+
+---
+
+## Operator (auto-training)
+
+The **operator** is an optional second agent that makes Meridian trade *better* over
+time. It does **not** trade. On a schedule it reads Meridian's closed-position
+performance and:
+
+- **Auto-applies safe tuning** — records lessons (`lessons add`), evolves screening
+  thresholds + Darwinian signal weights (`evolve`), and blacklists repeat ruggers.
+- **Proposes risky changes via a PR** — any `user-config.json` / code edits are pushed
+  to a branch for you to review, never applied silently.
+
+It runs through **Codex CLI** using a **Hermes** model via 9Router (so everything shares
+one endpoint). The guardrails live in `operator/PROMPT.md`; the Claude-compatible
+subagent is `.claude/agents/operator.md`.
+
+### Setup
+
+```bash
+# 1. Install Codex CLI
+npm install -g @openai/codex
+
+# 2. Point Codex at 9Router + Hermes
+mkdir -p ~/.codex
+cp operator/codex-config.example.toml ~/.codex/config.toml
+export NINEROUTER_API_KEY=9router        # any non-empty value
+
+# 3. Run it once to test (reads performance, applies safe tuning, proposes the rest)
+npm run operate
+
+# 4. Schedule it — e.g. every 6 hours via cron
+(crontab -l 2>/dev/null; echo "0 */6 * * * cd $HOME/meridian && bash scripts/operator.sh >> logs/operator.cron.log 2>&1") | crontab -
+```
+
+Tune behaviour with env vars: `RUNNER` (`codex`|`claude`), `OPERATOR_MODEL`,
+`CODEX_FLAGS`. For more reliable code edits, point `OPERATOR_MODEL` at a 9Router
+**combo** that falls back from Hermes to a strong coder, e.g.
+`nousresearch/hermes-4-405b → glm/glm-4.7 → cc/claude-sonnet`.
+
+> The operator is read-only with respect to your funds: it can never run `deploy`,
+> `close`, `swap`, `claim`, or touch `.env`/wallet keys.
 
 
 ---
