@@ -11,7 +11,24 @@
  */
 import { config } from "./config.js";
 
-export function buildSystemPrompt(agentType, portfolio, positions, stateSummary = null, lessons = null, perfSummary = null, weightsSummary = null, decisionSummary = null) {
+/**
+ * Wrapper that appends an output-language directive based on config.llm.language.
+ * Set it (e.g. via `/setcfg language "Bahasa Indonesia"`) to make the agent write
+ * all reports, reasoning, alerts, and chat replies in that language. Default English.
+ */
+export function buildSystemPrompt(...args) {
+  const prompt = buildSystemPromptInner(...args);
+  const lang = String((config.llm && config.llm.language) || "English").trim();
+  if (!lang || /^(english|en|inggris)$/i.test(lang)) return prompt;
+  return `${prompt}
+═══════════════════════════════════════════
+ OUTPUT LANGUAGE
+═══════════════════════════════════════════
+Write ALL prose you send to the user — reports, summaries, reasoning, decisions, alerts, and chat replies — in ${lang}. Keep token symbols/tickers, wallet & pool addresses, numbers, JSON, tool names, and config keys exactly as-is (do not translate or alter those).
+`;
+}
+
+function buildSystemPromptInner(agentType, portfolio, positions, stateSummary = null, lessons = null, perfSummary = null, weightsSummary = null, decisionSummary = null) {
   const s = config.screening;
 
   // MANAGER gets a leaner prompt — positions are pre-loaded in the goal, not repeated here
