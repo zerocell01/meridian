@@ -646,8 +646,12 @@ INSTALL_OPERATOR=1 curl -fsSL https://raw.githubusercontent.com/zerocell01/merid
 # 0. Install Node 18+ and PM2 + 9Router
 npm install -g pm2 9router
 
-# 1. Start 9Router and keep it alive
-pm2 start 9router --name 9router -- start
+# 1. Start 9Router and keep it alive. 9router's `start` is an interactive server that
+#    needs a TTY, so run it in a detached tmux session (PM2 crash-loops on it).
+sudo apt-get install -y tmux
+tmux new-session -d -s ninerouter '9router start'
+# Auto-start 9Router again after a reboot:
+(crontab -l 2>/dev/null; echo "@reboot tmux new-session -d -s ninerouter '9router start'") | crontab -
 
 # 2. Configure providers in the 9Router dashboard (port 20128).
 #    From your laptop, tunnel the dashboard over SSH:
