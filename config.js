@@ -144,6 +144,9 @@ export const config = {
     managementModel: u.managementModel ?? process.env.LLM_MODEL ?? "glm/glm-4.7",
     screeningModel:  u.screeningModel  ?? process.env.LLM_MODEL ?? "glm/glm-4.7",
     generalModel:    u.generalModel    ?? process.env.LLM_MODEL ?? "glm/glm-4.7",
+    // Output language for all agent prose (reports, reasoning, chat). "English" = default.
+    // Set e.g. "Bahasa Indonesia" to localize notifications + suggestions.
+    language:        u.language        ?? process.env.LLM_LANGUAGE ?? "English",
   },
 
   // ─── Darwinian Signal Weighting ───────
