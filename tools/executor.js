@@ -357,6 +357,7 @@ const toolMap = {
       managementModel: ["llm", "managementModel"],
       screeningModel: ["llm", "screeningModel"],
       generalModel: ["llm", "generalModel"],
+      language: ["llm", "language"],
       temperature: ["llm", "temperature"],
       maxTokens: ["llm", "maxTokens"],
       maxSteps: ["llm", "maxSteps"],
