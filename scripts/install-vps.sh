@@ -79,8 +79,15 @@ step "5/6 Installing Meridian dependencies"
 npm install
 
 step "6/6 Starting 9Router under PM2"
-pm2 start 9router --name 9router -- start || warn "9Router may already be running under PM2."
-pm2 save || true
+# Use --interpreter none so PM2 executes the 9router CLI directly (via its shebang)
+# instead of trying to require() it as a JS module (which fails with MODULE_NOT_FOUND).
+NINEROUTER_BIN="$(command -v 9router || true)"
+if [[ -n "$NINEROUTER_BIN" ]]; then
+  pm2 start "$NINEROUTER_BIN" --name 9router --interpreter none -- start || warn "9Router may already be running under PM2."
+  pm2 save || true
+else
+  warn "9router binary not found on PATH — start it manually: pm2 start \"\$(command -v 9router)\" --name 9router --interpreter none -- start"
+fi
 
 cat <<EOF
 
