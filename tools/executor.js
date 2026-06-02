@@ -220,6 +220,7 @@ function normalizeConfigValue(key, value) {
     "managementModel",
     "screeningModel",
     "generalModel",
+    "language",
     "hiveMindUrl",
     "hiveMindApiKey",
     "agentId",
