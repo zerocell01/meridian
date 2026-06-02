@@ -43,7 +43,7 @@ fi
 
 step "1/6 Installing system packages (git, curl, build tools)"
 $SUDO apt-get update -y
-$SUDO apt-get install -y git curl ca-certificates build-essential jq
+$SUDO apt-get install -y git curl ca-certificates build-essential jq tmux
 
 step "2/6 Ensuring Node.js 18+ is installed"
 NEED_NODE=1
@@ -78,15 +78,18 @@ cd "$TARGET_DIR"
 step "5/6 Installing Meridian dependencies"
 npm install
 
-step "6/6 Starting 9Router under PM2"
-# Use --interpreter none so PM2 executes the 9router CLI directly (via its shebang)
-# instead of trying to require() it as a JS module (which fails with MODULE_NOT_FOUND).
-NINEROUTER_BIN="$(command -v 9router || true)"
-if [[ -n "$NINEROUTER_BIN" ]]; then
-  pm2 start "$NINEROUTER_BIN" --name 9router --interpreter none -- start || warn "9Router may already be running under PM2."
-  pm2 save || true
+step "6/6 Starting 9Router under tmux"
+# 9router's `start` is an interactive TUI server that needs a pseudo-terminal, so PM2
+# is NOT suitable (it crash-loops with MODULE_NOT_FOUND / "Exiting..."). Run it inside a
+# detached tmux session instead, and re-create it on reboot via cron.
+if command -v 9router >/dev/null 2>&1; then
+  tmux kill-session -t ninerouter 2>/dev/null || true
+  tmux new-session -d -s ninerouter '9router start' \
+    || warn "Could not start 9router in tmux — run manually: tmux new-session -d -s ninerouter '9router start'"
+  (crontab -l 2>/dev/null | grep -v 'tmux new-session -d -s ninerouter'; \
+    echo "@reboot tmux new-session -d -s ninerouter '9router start'") | crontab - || true
 else
-  warn "9router binary not found on PATH — start it manually: pm2 start \"\$(command -v 9router)\" --name 9router --interpreter none -- start"
+  warn "9router not found on PATH — install it (npm i -g 9router), then: tmux new-session -d -s ninerouter '9router start'"
 fi
 
 cat <<EOF
