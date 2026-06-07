@@ -215,6 +215,53 @@ export function recordPoolDeploy(poolAddress, deployData) {
   log("pool-memory", `Recorded deploy for ${entry.name} (${poolAddress.slice(0, 8)}): PnL ${deploy.pnl_pct}%`);
 }
 
+/**
+ * Check if a pool/token is eligible for redeploy based on recent close history.
+ * Guards against rapid redeploy cycles that erode capital.
+ *
+ * Rules:
+ * - Last close must be >= minHoldMinutes ago (default 30)
+ * - Max maxRedeploysPerDay redeploy per token per 24h window (default 3)
+ */
+export function isRedeployAllowed(poolAddress, { config: cfg } = {}) {
+  const guard = cfg?.samePoolRedeployGuard;
+  if (!guard?.enabled) return { allowed: true };
+
+  const db = load();
+  const entry = db[poolAddress];
+  if (!entry?.deploys?.length) return { allowed: true };
+
+  const minHold = guard.minHoldMinutes ?? 30;
+  const maxPerDay = guard.maxRedeploysPerDay ?? 3;
+  const now = Date.now();
+  const oneDayAgo = now - 24 * 60 * 60 * 1000;
+
+  // Check last close time
+  const lastDeploy = entry.deploys[entry.deploys.length - 1];
+  if (lastDeploy?.closed_at) {
+    const minutesSinceClose = (now - new Date(lastDeploy.closed_at).getTime()) / 60000;
+    if (minutesSinceClose < minHold) {
+      return {
+        allowed: false,
+        reason: `Last close ${Math.floor(minutesSinceClose)}m ago (min: ${minHold}m)`,
+      };
+    }
+  }
+
+  // Check deploy count in 24h
+  const recentDeploys = entry.deploys.filter(
+    (d) => d.closed_at && new Date(d.closed_at).getTime() > oneDayAgo
+  );
+  if (recentDeploys.length >= maxPerDay) {
+    return {
+      allowed: false,
+      reason: `${recentDeploys.length} deploys in 24h (max: ${maxPerDay})`,
+    };
+  }
+
+  return { allowed: true };
+}
+
 export function isPoolOnCooldown(poolAddress) {
   if (!poolAddress) return false;
   const db = load();

@@ -24,7 +24,7 @@ import {
   syncOpenPositions,
 } from "../state.js";
 import { recordPerformance } from "../lessons.js";
-import { isBaseMintOnCooldown, isPoolOnCooldown } from "../pool-memory.js";
+import { isBaseMintOnCooldown, isPoolOnCooldown, isRedeployAllowed } from "../pool-memory.js";
 import { normalizeMint } from "./wallet.js";
 import { appendDecision } from "../decision-log.js";
 import { getAndClearStagedSignals } from "../signal-tracker.js";
@@ -595,6 +595,13 @@ export async function deployPosition({
     return { success: false, error: "Pool on cooldown — was recently closed with a cooldown reason. Try a different pool." };
   }
 
+  // Same-pool redeploy guard
+  const redeploy = isRedeployAllowed(pool_address, { config });
+  if (!redeploy.allowed) {
+    log("deploy", `Pool ${pool_address.slice(0, 8)} redeploy blocked — ${redeploy.reason}`);
+    return { success: false, error: `Redeploy guard: ${redeploy.reason}. Try a different pool.` };
+  }
+
   const { StrategyType, getBinIdFromPrice, getPriceOfBinByBinId } = await getDLMM();
   const pool = await getPool(pool_address);
   const baseMint = pool.lbPair.tokenXMint.toString();
@@ -1013,21 +1020,24 @@ let _positionsInflight = null; // deduplicates concurrent calls
 const LPAGENT_API = "https://api.lpagent.io/open-api/v1";
 
 async function fetchLpAgentOpenPositions(walletAddress) {
+  if (!config.api.lpAgentRelayEnabled) return {};
   if (!process.env.LPAGENT_API_KEY) return {};
-
   const url = `${LPAGENT_API}/lp-positions/opening?owner=${walletAddress}`;
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
     const res = await fetch(url, {
-      headers: {
-        "x-api-key": process.env.LPAGENT_API_KEY,
-      },
+      headers: { "x-api-key": process.env.LPAGENT_API_KEY },
+      signal: controller.signal,
     });
+    clearTimeout(timer);
+    const body = await res.text().catch(() => "");
     if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      log("lpagent_api", `HTTP ${res.status} for owner ${walletAddress.slice(0, 8)}: ${body.slice(0, 160)}`);
+      log("lpagent_api", `HTTP ${res.status} for owner ${walletAddress.slice(0, 8)}: ${body.slice(0, 120)}`);
       return {};
     }
-    const data = await res.json();
+    let data;
+    try { data = JSON.parse(body || "{}"); } catch { data = {}; }
     const positions = data?.data || [];
     const byAddress = {};
     for (const p of positions) {

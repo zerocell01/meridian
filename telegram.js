@@ -281,13 +281,14 @@ export async function createLiveMessage(title, intro = "Starting...") {
     await editMessage(text, state.messageId);
   }
 
-  function scheduleFlush(delay = 300) {
+  function scheduleFlush(delay = 1000) {
     if (state.flushTimer) {
       state.flushRequested = true;
       return;
     }
     state.flushTimer = setTimeout(() => {
       state.flushPromise = flushNow().catch(() => null);
+      state.flushTimer = null;
     }, delay);
   }
 
@@ -347,7 +348,7 @@ async function poll(onMessage) {
   while (_polling) {
     try {
       const res = await fetch(
-        `${BASE}/getUpdates?offset=${_offset}&timeout=30`,
+        `${BASE}/getUpdates?offset=${_offset}&timeout=5`,
         { signal: AbortSignal.timeout(35_000) }
       );
       if (!res.ok) { await sleep(5000); continue; }

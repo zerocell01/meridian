@@ -376,6 +376,13 @@ export async function agentLoop(goal, maxSteps = config.llm.maxSteps, sessionHis
 
       messages.push(...toolResults);
     } catch (error) {
+      // Suppress intermittent 500 errors from upstream proxy — log at debug and retry silently
+      if (error.status === 500) {
+        log("debug", `Agent loop error at step ${step}: ${error.message} (retrying...)`);
+        await sleep(3000);
+        continue;
+      }
+
       log("error", `Agent loop error at step ${step}: ${error.message}`);
 
       // If it's a rate limit, wait and retry

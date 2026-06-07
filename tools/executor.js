@@ -12,7 +12,7 @@ import {
 import { getWalletBalances, swapToken } from "./wallet.js";
 import { studyTopLPers } from "./study.js";
 import { addLesson, clearAllLessons, clearPerformance, removeLessonsByKeyword, getPerformanceHistory, pinLesson, unpinLesson, listLessons } from "../lessons.js";
-import { setPositionInstruction } from "../state.js";
+import { setPositionInstruction, getTrackedPositions } from "../state.js";
 
 import { getPoolMemory, addPoolNote } from "../pool-memory.js";
 import { addStrategy, listStrategies, getStrategy, setActiveStrategy, removeStrategy } from "../strategy-library.js";
@@ -547,6 +547,13 @@ const toolMap = {
     // Restart cron jobs if intervals changed
     const intervalChanged = applied.managementIntervalMin != null || applied.screeningIntervalMin != null;
     if (intervalChanged && _cronRestarter) {
+      // Safety net: if management interval is set fast (<10) but there are 0 open positions,
+      // reset to default 10 to avoid wasting LLM calls on empty cycles
+      const posCount = getTrackedPositions(true).length;
+      if (applied.managementIntervalMin != null && applied.managementIntervalMin < 10 && posCount === 0) {
+        config.schedule.managementIntervalMin = 10;
+        log("config", `Interval safety reset: 0 open positions — management interval forced back to 10m`);
+      }
       _cronRestarter();
       log("config", `Cron restarted — management: ${config.schedule.managementIntervalMin}m, screening: ${config.schedule.screeningIntervalMin}m`);
     }

@@ -216,41 +216,7 @@ export async function runManagementCycle({ silent = false } = {}) {
 
     if (positions.length === 0) {
       log("cron", "No open positions — triggering screening cycle");
-      const wallet = await getWalletBalances().catch(() => null);
-      const solBal = wallet?.sol?.toFixed(4) ?? "?";
-      let lastInfo = "No deploy history";
-      try {
-        const fs = await import("fs");
-        const pmPath = new URL("./pool-memory.json", import.meta.url);
-        const pm = JSON.parse(fs.readFileSync(pmPath, "utf8"));
-        const recent = Object.values(pm)
-          .filter(e => e?.last_deployed_at)
-          .sort((a, b) => new Date(b.last_deployed_at) - new Date(a.last_deployed_at))[0];
-        if (recent) {
-          const mins = Math.floor((Date.now() - new Date(recent.last_deployed_at).getTime()) / 60000);
-          lastInfo = `Last deploy: ${recent.name} (${mins}m ago)`;
-        }
-      } catch {}
-      // Check deploy blockers
-      const blockers = [];
-      const minRequired = (config.management?.deployAmountSol ?? 0.5) + (config.management?.gasReserve ?? 0.2);
-      const solNum = wallet?.sol ?? 0;
-      if (solNum < minRequired) {
-        blockers.push(`⚠️ SOL too low for deploy (need ${minRequired.toFixed(2)} SOL: ${config.management?.deployAmountSol ?? 0.5} deploy + ${config.management?.gasReserve ?? 0.2} gas)`);
-      }
-      const maxPos = config.risk?.maxPositions ?? 3;
-
-      const mgmtLines = [
-        "No open positions.",
-        `💰 Wallet: ${solBal} SOL`,
-        lastInfo,
-        `📊 Max positions: ${maxPos} | Deploy amount: ${config.management?.deployAmountSol ?? 0.5} SOL`,
-      ];
-      if (blockers.length > 0) {
-        mgmtLines.push("", ...blockers);
-      }
-      mgmtLines.push("", "Triggering screening cycle...");
-      mgmtReport = mgmtLines.join("\n");
+      mgmtReport = "No open positions. Triggering screening cycle.";
       runScreeningCycle().catch((e) => log("cron_error", `Triggered screening failed: ${e.message}`));
       return mgmtReport;
     }
@@ -344,14 +310,14 @@ export async function runManagementCycle({ silent = false } = {}) {
             markerIndex = barLength - 1;
           } else if (active <= lower) {
             filled = barLength;
-            markerIndex = 0;
+            markerIndex = barLength - 1;
           } else {
             filled = Math.max(Math.round(progress * barLength), 1);
             markerIndex = Math.min(filled, barLength - 1);
           }
         } else {
-          filled = barLength;
-          markerIndex = barLength - 1;
+          filled = Math.max(Math.round(progress * barLength), 1);
+          markerIndex = Math.min(filled, barLength - 1);
         }
       } else {
         const active = Number(p.active_bin);
@@ -360,12 +326,11 @@ export async function runManagementCycle({ silent = false } = {}) {
         if (Number.isFinite(active) && Number.isFinite(upper) && Number.isFinite(lower) && upper !== lower) {
           const ratio = (active - lower) / (upper - lower);
           markerIndex = Math.round(Math.max(0, Math.min(1, ratio)) * (barLength - 1));
-          filled = markerIndex + 1;
         }
       }
       const barArr = Array.from({ length: barLength }, (_, i) => i < filled ? '█' : '░');
       if (markerIndex >= 0) barArr[markerIndex] = '◉';
-      const bar = '[' + barArr.join('') + ']';
+      const bar = barArr.join('');
 
       const lines = [
         `**${p.pair}** | Age: ${p.age_minutes ?? '?'}m | Val: ${cur}${val}`,
@@ -581,72 +546,21 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     if (passing.length === 0) {
       const combined = filteredOut.length > 0 ? filteredOut : earlyFilteredExamples;
-      const totalScanned = candidates.length + (earlyFilteredExamples?.length ?? 0);
+      const combinedExamples = combined.slice(0, 5)
+        .map((entry) => `- ${entry.name}: ${entry.reason}`)
+        .join("\n");
       const funnelBlock = buildGmgnFunnelReport(gmgnStageCounts, gmgnAllFiltered, { fromStage: 2 });
-      const thresholds = `tvl>$${config.screening.minTvl} | vol>$${config.screening.minVolume} | organic>${config.screening.minOrganic}% | holders>${config.screening.minHolders} | fee/tvl>${config.screening.minFeeActiveTvlRatio}%`;
-
-      // Build rejection breakdown by category
-      const rejectionCounts = {};
-      for (const entry of combined) {
-        const reason = entry.reason || "unknown";
-        // Normalize reason to category
-        let cat = reason;
-        if (reason.includes("organic")) cat = "organic score";
-        else if (reason.includes("bot holder") || reason.includes("bots")) cat = "bot holders";
-        else if (reason.includes("tvl")) cat = "TVL too low/high";
-        else if (reason.includes("volume") || reason.includes("vol")) cat = "volume";
-        else if (reason.includes("holder")) cat = "holders";
-        else if (reason.includes("launchpad") || reason.includes("blocked")) cat = "blocked launchpad";
-        else if (reason.includes("mcap") || reason.includes("market cap")) cat = "mcap";
-        rejectionCounts[cat] = (rejectionCounts[cat] || 0) + 1;
-      }
-
-      const breakdownLines = Object.entries(rejectionCounts)
-        .sort(([, a], [, b]) => b - a)
-        .slice(0, 5)
-        .map(([cat, count]) => `  • ${cat}: ${count}x`);
-
-      // Per-pool rejection details (top 5 most informative)
-      const perPoolLines = combined.slice(0, 5).map((entry) => {
-        const name = (entry.name || "unknown").slice(0, 30);
-        return `  ✗ ${name} → ${entry.reason}`;
-      });
-
-      // LLM safety-decision summary (from getLoneCandidateSkipReason or LLM NO DEPLOY)
-      const safetyReasons = [];
-      if (candidates.length > 0 && passing.length === 0) {
-        safetyReasons.push("All candidates passed initial filters but failed deep evaluation.");
-      }
-
-      // Get wallet balance for context
-      const wallet = await getWalletBalances().catch(() => null);
-      const solBal = wallet?.sol?.toFixed(4) ?? "?";
-
-      const lines = [
-        "No candidates available.",
-        "",
-        `📊 Scanned: ${totalScanned} pool(s) → ${candidates.length} reached evaluation → 0 passed`,
-        `📋 Filtered: ${combined.length} rejected`,
-      ];
-      if (breakdownLines.length > 0) {
-        lines.push("", "Rejection breakdown:", ...breakdownLines);
-      }
-      if (perPoolLines.length > 0) {
-        lines.push("", "Top rejected pools:", ...perPoolLines);
-      }
-      if (safetyReasons.length > 0) {
-        lines.push("", ...safetyReasons);
-      }
-      lines.push("", `⚙️ Thresholds: ${thresholds}`);
-      lines.push(`💰 Wallet: ${solBal} SOL`);
-      if (funnelBlock) lines.push("", funnelBlock);
-
-      screenReport = lines.join("\n");
+      const thresholds = `Thresholds: tvl>$${config.screening.minTvl} | vol>$${config.screening.minVolume} | organic>${config.screening.minOrganic}% | holders>${config.screening.minHolders} | fee/tvl>${config.screening.minFeeActiveTvlRatio}%`;
+      screenReport = funnelBlock
+        ? `No candidates available.\n\n${funnelBlock}`
+        : combinedExamples
+          ? `No candidates available.\nFiltered examples:\n${combinedExamples}`
+          : `No candidates available (all filtered).\n${thresholds}`;
       appendDecision({
         type: "no_deploy",
         actor: "SCREENER",
         summary: "No candidates available",
-        reason: funnelBlock || screenReport || "All candidates filtered before deploy",
+        reason: funnelBlock || combinedExamples || "All candidates filtered before deploy",
         rejected: combined.slice(0, 5).map((entry) => `${entry.name}: ${entry.reason}`),
       });
       return screenReport;
@@ -781,7 +695,6 @@ export async function runScreeningCycle({ silent = false } = {}) {
 
     let deployAttempted = false;
     let deploySucceeded = false;
-    const safetyBlocks = [];
     const { content } = await agentLoop(`
 SCREENING CYCLE
 ${strategyBlock}
@@ -862,12 +775,6 @@ IMPORTANT:
           if (name === "deploy_position") {
             deployAttempted = true;
             deploySucceeded = Boolean(success && result?.success !== false && !result?.error && !result?.blocked);
-            if (result?.blocked) {
-              safetyBlocks.push(result.reason || "blocked by safety check");
-            }
-            if (result?.error) {
-              safetyBlocks.push(result.error);
-            }
           }
           await liveMessage?.toolFinish(name, result, success);
         },
@@ -882,9 +789,6 @@ IMPORTANT:
         reason: stripThink(content).slice(0, 500),
       });
     } else if (!deploySucceeded) {
-      if (safetyBlocks.length > 0) {
-        screenReport += `\n\n⚠️ Deploy blocked:\n${safetyBlocks.map(r => `  • ${r}`).join("\n")}`;
-      }
       appendDecision({
         type: "no_deploy",
         actor: "SCREENER",
@@ -1092,18 +996,6 @@ function getDeterministicCloseRule(position, managementConfig) {
   if (!pnlSuspect && position.pnl_pct != null && position.pnl_pct >= managementConfig.takeProfitPct) {
     return { action: "CLOSE", rule: 2, reason: "take profit" };
   }
-
-  // Trailing stop-loss: if PnL was above trailingTriggerPct and dropped by trailingDropPct, close
-  if (
-    managementConfig.trailingStopLoss?.enabled &&
-    tracked?.peak_pnl_pct != null &&
-    tracked.peak_pnl_pct >= (managementConfig.trailingStopLoss.triggerPct ?? 1.5) &&
-    position.pnl_pct != null &&
-    position.pnl_pct <= (tracked.peak_pnl_pct - (managementConfig.trailingStopLoss.dropPct ?? 1.0))
-  ) {
-    return { action: "CLOSE", rule: 2, reason: "trailing stop-loss" };
-  }
-
   if (
     position.active_bin != null &&
     position.upper_bin != null &&
@@ -1122,8 +1014,7 @@ function getDeterministicCloseRule(position, managementConfig) {
   if (
     position.fee_per_tvl_24h != null &&
     position.fee_per_tvl_24h < managementConfig.minFeePerTvl24h &&
-    (position.age_minutes ?? 0) >= (managementConfig.minAgeBeforeYieldCheck ?? 40) &&
-    ((position.unclaimed_fees_usd ?? 0) + (position.total_fees_claimed_usd ?? 0)) < 0.01
+    (position.age_minutes ?? 0) >= 60
   ) {
     return { action: "CLOSE", rule: 5, reason: "low yield" };
   }
@@ -1296,9 +1187,6 @@ function settingValue(key) {
     gmgnMinTotalFeeSol: config.gmgn.minTotalFeeSol,
     gmgnMinHolders: config.gmgn.minHolders,
     strategy: config.strategy.strategy,
-    screeningModel: config.llm.screeningModel,
-    managementModel: config.llm.managementModel,
-    generalModel: config.llm.generalModel,
     minBinsBelow: config.strategy.minBinsBelow,
     maxBinsBelow: config.strategy.maxBinsBelow,
     deployAmountSol: config.management.deployAmountSol,
@@ -1377,9 +1265,6 @@ function renderSettingsMenu(page = "main") {
       settingButton("Indicators", "cfg:page:indicators"),
       settingButton("GMGN", "cfg:page:gmgn"),
       settingButton("KOL", "cfg:page:kol"),
-    ],
-    [
-      settingButton("LLM", "cfg:page:llm"),
     ],
   ];
 
@@ -1485,13 +1370,6 @@ function renderSettingsMenu(page = "main") {
       ],
       inputButton("rsiLength", "RSI length"),
     ];
-  } else if (page === "llm") {
-    rows = [
-      inputButton("screeningModel", "Screening model"),
-      inputButton("managementModel", "Management model"),
-      inputButton("generalModel", "General model"),
-      [settingButton("Set all models", "cfg:input:__set_all_llm__")],
-    ];
   } else {
     rows = [
       [
@@ -1552,12 +1430,11 @@ async function applySettingsMenuCallback(msg) {
       : inputKey.startsWith("gmgn") && inputKey !== "gmgnRequireKol" ? "gmgn"
       : inputKey.startsWith("indicator") || inputKey === "chartIndicatorsEnabled" || inputKey === "rsiLength" || inputKey === "requireAllIntervals" ? "indicators"
       : ["minBinsBelow", "maxBinsBelow"].includes(inputKey) ? "strategy"
-      : ["screeningModel", "managementModel", "generalModel", "__set_all_llm__"].includes(inputKey) ? "llm"
       : ["useDiscordSignals", "blockPvpSymbols", "managementIntervalMin", "screeningIntervalMin", "screeningSource", "gmgnRequireKol"].includes(inputKey) ? "screen"
       : "risk";
     _pendingInput = { key: inputKey, page: inputPage, menuMsgId: msg.messageId };
     await answerCallbackQuery(msg.callbackQueryId);
-    await sendMessage(`Enter new value for ${inputKey} (current: ${currentVal ?? "off"}):\nSend a model string, or "off" to clear.`);
+    await sendMessage(`Enter new value for ${inputKey} (current: ${currentVal ?? "off"}):\nSend a number, or "off" to clear.`);
     return;
   }
   if (action === "close") {
@@ -1602,28 +1479,13 @@ async function applySettingsMenuCallback(msg) {
     return;
   }
 
-  if (key === "__set_all_llm__") {
-    const allResult = await executeTool("update_config", {
-      changes: {
-        screeningModel: value,
-        managementModel: value,
-        generalModel: value,
-      },
-      reason: "Telegram settings menu set-all models",
-    });
-    if (!allResult?.success) {
-      await answerCallbackQuery(msg.callbackQueryId, "Config update failed");
-      return;
-    }
-  } else {
-    const result = await executeTool("update_config", {
-      changes: { [key]: value },
-      reason: "Telegram settings menu",
-    });
-    if (!result?.success) {
-      await answerCallbackQuery(msg.callbackQueryId, "Config update failed");
-      return;
-    }
+  const result = await executeTool("update_config", {
+    changes: { [key]: value },
+    reason: "Telegram settings menu",
+  });
+  if (!result?.success) {
+    await answerCallbackQuery(msg.callbackQueryId, "Config update failed");
+    return;
   }
   page = ["gmgnPreferredKolNames", "gmgnPreferredKolMinHoldPct", "gmgnDumpKolNames", "gmgnDumpKolMinHoldPct"].includes(key) ? "kol"
     : ["gmgnMinVolume", "gmgnMaxBundlerRate", "gmgnMinTokenAgeHours", "gmgnMaxTokenAgeHours"].includes(key) ? "screen"
@@ -1631,13 +1493,11 @@ async function applySettingsMenuCallback(msg) {
       ? "gmgn"
       : key.startsWith("indicator") || key === "chartIndicatorsEnabled" || key === "rsiLength" || key === "requireAllIntervals"
         ? "indicators"
-        : ["screeningModel", "managementModel", "generalModel"].includes(key)
-          ? "llm"
-          : ["minBinsBelow", "maxBinsBelow"].includes(key)
-            ? "strategy"
-            : ["useDiscordSignals", "blockPvpSymbols", "managementIntervalMin", "screeningIntervalMin", "screeningSource", "gmgnRequireKol"].includes(key)
-              ? "screen"
-              : "risk";
+        : ["minBinsBelow", "maxBinsBelow"].includes(key)
+          ? "strategy"
+          : ["useDiscordSignals", "blockPvpSymbols", "managementIntervalMin", "screeningIntervalMin", "screeningSource", "gmgnRequireKol"].includes(key)
+            ? "screen"
+            : "risk";
   await answerCallbackQuery(msg.callbackQueryId, `Updated ${key}`);
   await showSettingsMenu({ messageId: msg.messageId, page });
 }
@@ -1774,11 +1634,8 @@ async function telegramHandler(msg) {
     const { key, page, menuMsgId } = _pendingInput;
     _pendingInput = null;
     let value;
-    const isModelValue = ["screeningModel", "managementModel", "generalModel", "__set_all_llm__"].includes(key);
     if (text.toLowerCase() === "off" || text.toLowerCase() === "null") {
       value = null;
-    } else if (isModelValue || key === "__set_all_llm__") {
-      value = text.trim() || null;
     } else {
       value = Number(text);
       if (!Number.isFinite(value)) {
@@ -1786,25 +1643,10 @@ async function telegramHandler(msg) {
         return;
       }
     }
-    if (key === "__set_all_llm__") {
-      const allResult = await executeTool("update_config", {
-        changes: {
-          screeningModel: value,
-          managementModel: value,
-          generalModel: value,
-        },
-        reason: "Telegram set-all models",
-      });
-      if (!allResult?.success) {
-        await sendMessage("Failed to update LLM models.");
-        return;
-      }
-    } else {
-      const result = await executeTool("update_config", { changes: { [key]: value }, reason: "Telegram input field" });
-      if (!result?.success) {
-        await sendMessage(`Failed to update ${key}.`);
-        return;
-      }
+    const result = await executeTool("update_config", { changes: { [key]: value }, reason: "Telegram input field" });
+    if (!result?.success) {
+      await sendMessage(`Failed to update ${key}.`);
+      return;
     }
     await showSettingsMenu({ messageId: menuMsgId, page });
     return;
@@ -1890,8 +1732,28 @@ async function telegramHandler(msg) {
       let filled = 0;
       let markerIndex = -1;
       if (!p.in_range) {
-        filled = barLength;
-        markerIndex = barLength - 1;
+        const active = Number(p.active_bin);
+        const upper = Number(p.upper_bin);
+        const lower = Number(p.lower_bin);
+        if (Number.isFinite(active) && Number.isFinite(upper) && Number.isFinite(lower)) {
+          if (active >= upper) {
+            filled = barLength;
+            markerIndex = barLength - 1;
+          } else if (active <= lower) {
+            filled = barLength;
+            markerIndex = barLength - 1;
+          } else {
+            const oorMinutes = p.minutes_out_of_range ?? 0;
+            const progress = Math.min(oorMinutes / oorLimit, 1);
+            filled = Math.max(Math.round(progress * barLength), 1);
+            markerIndex = Math.min(filled, barLength - 1);
+          }
+        } else {
+          const oorMinutes = p.minutes_out_of_range ?? 0;
+          const progress = Math.min(oorMinutes / oorLimit, 1);
+          filled = Math.max(Math.round(progress * barLength), 1);
+          markerIndex = Math.min(filled, barLength - 1);
+        }
       } else {
         const active = Number(p.active_bin);
         const upper = Number(p.upper_bin);
@@ -1899,29 +1761,18 @@ async function telegramHandler(msg) {
         if (Number.isFinite(active) && Number.isFinite(upper) && Number.isFinite(lower) && upper !== lower) {
           const ratio = (active - lower) / (upper - lower);
           markerIndex = Math.round(Math.max(0, Math.min(1, ratio)) * (barLength - 1));
-          filled = markerIndex + 1;
         }
       }
 
-      const barArr = Array.from({ length: barLength }, (_, idx) => idx < filled ? '█' : '░');
-      if (markerIndex >= 0) barArr[markerIndex] = '◉';
-      const bar = '[' + barArr.join('') + ']';
+      const barArr = Array.from({ length: barLength }, (_, idx) => idx < filled ? "█" : "░");
+      if (markerIndex >= 0) barArr[markerIndex] = "◉";
+      const bar = `[${barArr.join("")}]`;
 
-      const block = [
+      return [
         `${i + 1}. ${p.pair} | Age: ${age} | Val: ${cur}${value}`,
         `Unclaimed: ${cur}${unclaimed} | PnL: ${pnl}% | Yield: ${yieldPct}%`,
-        '',
-        `${statusLine} [${bar}]  ${actionLabel}`,
-      ].join('\n');
-
-      const sepLen = Math.max(20, [
-        `${i + 1}. ${p.pair} | Age: ${age} | Val: ${cur}${value}`,
-        `Unclaimed: ${cur}${unclaimed} | PnL: ${pnl}% | Yield: ${yieldPct}%`,
-        `${statusLine} [${bar}]  ${actionLabel}`,
-      ].reduce((max, line) => Math.max(max, line.length), 0));
-      const sep = '─'.repeat(Math.min(sepLen, 60));
-
-      return block + (i < positions.length - 1 ? `\n\n${sep}` : '');
+        `${statusLine}  ${bar}  ${actionLabel}`,
+      ].join("\n");
     });
     await sendMessage(`📊 Open Positions (${total_positions}):\n\n${lines.join("\n\n")}\n\n/close <n> to close | /set <n> <note> to set instruction`);
   }
